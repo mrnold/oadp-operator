@@ -46,6 +46,11 @@ func (r *DPAReconciler) ValidateDataProtectionCR(log logr.Logger) (bool, error) 
 			if location.Velero == nil {
 				return false, errors.New("snapshotLocation velero configuration cannot be nil")
 			}
+			if location.Velero.Credential != nil {
+				if _, err := r.getProviderSecret(location.Velero.Credential.Name); err != nil {
+					return false, err
+				}
+			}
 		}
 	}
 	//
