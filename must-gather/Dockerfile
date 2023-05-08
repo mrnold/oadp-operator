@@ -1,6 +1,6 @@
 FROM quay.io/konveyor/builder:latest as konveyor-builder
-ARG RESTIC_BRANCH=konveyor-0.15.0
-ARG VELERO_BRANCH=konveyor-dev
+ARG RESTIC_BRANCH=oadp-1.2
+ARG VELERO_BRANCH=oadp-1.2
 WORKDIR /build
 RUN curl --location --output velero.tgz https://github.com/openshift/velero/archive/refs/heads/${VELERO_BRANCH}.tar.gz && \
     tar -xzvf velero.tgz && cd velero-${VELERO_BRANCH} && \
