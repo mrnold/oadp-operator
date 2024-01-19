@@ -3,13 +3,14 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"os"
+	"strconv"
+	"time"
+
 	"github.com/openshift/oadp-operator/pkg/common"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
-	"os"
-	"strconv"
-	"time"
 
 	"github.com/go-logr/logr"
 	oadpv1alpha1 "github.com/openshift/oadp-operator/api/v1alpha1"
@@ -153,7 +154,7 @@ func (b BucketReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	bucket.Status.LastSynced = &v1.Time{Time: time.Now()}
 	bucket.Status.Name = bucket.Spec.Name
 
-	b.Client.Status().Update(ctx, &bucket, &client.UpdateOptions{})
+	b.Client.Status().Update(ctx, &bucket, &client.SubResourceUpdateOptions{})
 	return ctrl.Result{}, nil
 }
 
