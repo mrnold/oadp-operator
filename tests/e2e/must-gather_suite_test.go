@@ -8,6 +8,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/openshift/oadp-operator/tests/e2e/lib"
 	. "github.com/openshift/oadp-operator/tests/e2e/lib"
 	"github.com/openshift/oadp-operator/tests/e2e/utils"
 )
@@ -80,8 +81,8 @@ var _ = Describe("Backup and restore tests with must-gather", func() {
 				Namespace:         "mongo-persistent",
 				Name:              "mongo-datamover-e2e",
 				BackupRestoreType: lib.CSIDataMover,
-				PreBackupVerify:   mongoready(true, false),
-				PostRestoreVerify: mongoready(false, false),
+				PreBackupVerify:   mongoready(true, false, lib.CSIDataMover),
+				PostRestoreVerify: mongoready(false, false, lib.CSIDataMover),
 			},
 			MustGatherFiles: []string{
 				"namespaces/" + namespace + "/oadp.openshift.io/dpa-ts-" + instanceName + "/ts-" + instanceName + ".yml",
