@@ -83,6 +83,7 @@ var _ = Describe("Backup and restore tests with must-gather", func() {
 				BackupRestoreType: lib.CSIDataMover,
 				PreBackupVerify:   mongoready(true, false, lib.CSIDataMover),
 				PostRestoreVerify: mongoready(false, false, lib.CSIDataMover),
+				BackupTimeout:     20 * time.Minute,
 			},
 			MustGatherFiles: []string{
 				"namespaces/" + namespace + "/oadp.openshift.io/dpa-ts-" + instanceName + "/ts-" + instanceName + ".yml",

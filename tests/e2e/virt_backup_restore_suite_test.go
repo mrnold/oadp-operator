@@ -3,13 +3,14 @@ package e2e_test
 import (
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
-	"github.com/onsi/gomega"
 	. "github.com/onsi/gomega"
+	"k8s.io/apimachinery/pkg/util/wait"
 
 	"github.com/openshift/oadp-operator/api/v1alpha1"
 	"github.com/openshift/oadp-operator/tests/e2e/lib"
@@ -38,6 +39,8 @@ func getLatestCirrosImageURL() (string, error) {
 
 type VmBackupRestoreCase struct {
 	BackupRestoreCase
+	Template        string
+	InitDelay       time.Duration
 	Source          string
 	SourceNamespace string
 }
@@ -54,47 +57,83 @@ func runVmBackupAndRestore(brCase VmBackupRestoreCase, expectedErr error, update
 	err := lib.CreateNamespace(v.Clientset, brCase.Namespace)
 	Expect(err).To(BeNil())
 
-	// Create a standalone VM disk. This defaults to cloning the CirrOS image.
-	// This uses a DataVolume so import and clone progress can be monitored.
-	// Behavioral notes: CDI will garbage collect DataVolumes if they are not
-	// attached to anything, so this disk needs to include the annotation
-	// storage.deleteAfterCompletion in order to keep it around long enough to
-	// attach to a VM. CDI also waits until the DataVolume is attached to
-	// something before running whatever import process it has been asked to
-	// run, so this disk also needs the storage.bind.immediate.requested
-	// annotation to get it to start the cloning process.
-	err = v.CreateDiskFromYaml(brCase.Namespace, diskName, 5*time.Minute)
-	Expect(err).To(BeNil())
+	if brCase.Template == "" { // No template: CirrOS test
+		// Create a standalone VM disk. This defaults to cloning the CirrOS image.
+		// This uses a DataVolume so import and clone progress can be monitored.
+		// Behavioral notes: CDI will garbage collect DataVolumes if they are not
+		// attached to anything, so this disk needs to include the annotation
+		// storage.deleteAfterCompletion in order to keep it around long enough to
+		// attach to a VM. CDI also waits until the DataVolume is attached to
+		// something before running whatever import process it has been asked to
+		// run, so this disk also needs the storage.bind.immediate.requested
+		// annotation to get it to start the cloning process.
+		err = v.CreateDiskFromYaml(brCase.Namespace, diskName, 5*time.Minute)
+		Expect(err).To(BeNil())
 
-	err = v.CreateVm(brCase.Namespace, vmName, 5*time.Minute)
-	Expect(err).To(BeNil())
+		err = v.CreateVm(brCase.Namespace, vmName, 5*time.Minute)
+		Expect(err).To(BeNil())
 
-	// Remove the Data Volume, but keep the PVC attached to the VM. The
-	// DataVolume must be removed before backing up, because otherwise the
-	// restore process might try to follow the instructions in the spec. For
-	// example, a DataVolume that lists a cloned PVC will get restored in the
-	// same state, and attempt to clone the PVC again after restore. The
-	// DataVolume also needs to be detached from the VM, so that the VM restore
-	// does not try to use the DataVolume that was deleted.
-	err = v.DetachPvc(brCase.Namespace, diskName, 2*time.Minute)
-	Expect(err).To(BeNil())
-	err = v.RemoveDataVolume(brCase.Namespace, diskName, 2*time.Minute)
-	Expect(err).To(BeNil())
+		// Remove the Data Volume, but keep the PVC attached to the VM. The
+		// DataVolume must be removed before backing up, because otherwise the
+		// restore process might try to follow the instructions in the spec. For
+		// example, a DataVolume that lists a cloned PVC will get restored in the
+		// same state, and attempt to clone the PVC again after restore. The
+		// DataVolume also needs to be detached from the VM, so that the VM restore
+		// does not try to use the DataVolume that was deleted.
+		err = v.DetachPvc(brCase.Namespace, diskName, 2*time.Minute)
+		Expect(err).To(BeNil())
+		err = v.RemoveDataVolume(brCase.Namespace, diskName, 2*time.Minute)
+		Expect(err).To(BeNil())
+
+	} else { // Fedora test
+		err = lib.InstallApplication(v.Client, brCase.Template)
+		if err != nil {
+			fmt.Printf("Failed to install VM template %s: %v", brCase.Template, err)
+		}
+		Expect(err).To(BeNil())
+
+		// Wait for VM to start, then give some time for cloud-init to run.
+		// Afterward, run through the standard application verification to make sure
+		// the application itself is working correctly.
+		err = wait.PollImmediate(10*time.Second, 10*time.Minute, func() (bool, error) {
+			status, err := v.GetVmStatus(brCase.Namespace, brCase.Name)
+			return status == "Running", err
+		})
+		Expect(err).ToNot(HaveOccurred())
+	}
+
+	// TODO: find a better way to check for clout-init completion
+	if brCase.InitDelay > 0*time.Second {
+		log.Printf("Sleeping to wait for cloud-init to be ready...")
+		time.Sleep(brCase.InitDelay)
+	}
 
 	// Back up VM
 	nsRequiresResticDCWorkaround := runBackup(brCase.BackupRestoreCase, backupName)
 
 	// Delete everything in test namespace
-	err = v.RemoveVm(brCase.Namespace, vmName, 2*time.Minute)
-	Expect(err).To(BeNil())
-	err = v.RemovePvc(brCase.Namespace, diskName, 2*time.Minute)
-	Expect(err).To(BeNil())
+	if brCase.Template == "" { // No template: CirrOS test
+		err = v.RemoveVm(brCase.Namespace, vmName, 2*time.Minute)
+		Expect(err).To(BeNil())
+		err = v.RemovePvc(brCase.Namespace, diskName, 2*time.Minute)
+		Expect(err).To(BeNil())
+	} else { // Fedora test
+		err = v.RemoveVm(brCase.Namespace, brCase.Name, 2*time.Minute)
+		Expect(err).To(BeNil())
+	}
 	err = lib.DeleteNamespace(v.Clientset, brCase.Namespace)
 	Expect(err).To(BeNil())
-	Eventually(lib.IsNamespaceDeleted(kubernetesClientForSuiteRun, brCase.Namespace), timeoutMultiplier*time.Minute*4, time.Second*5).Should(BeTrue())
+	Eventually(lib.IsNamespaceDeleted(kubernetesClientForSuiteRun, brCase.Namespace), timeoutMultiplier*time.Minute*5, time.Second*5).Should(BeTrue())
 
 	// Do restore
 	runRestore(brCase.BackupRestoreCase, backupName, restoreName, nsRequiresResticDCWorkaround)
+
+	// Run optional custom verification
+	if brCase.PostRestoreVerify != nil {
+		log.Printf("Running post-restore function for VM case %s", brCase.Name)
+		err = brCase.PostRestoreVerify(dpaCR.Client, brCase.Namespace)
+		Expect(err).ToNot(HaveOccurred())
+	}
 }
 
 var _ = Describe("VM backup and restore tests", Ordered, func() {
@@ -149,7 +188,7 @@ var _ = Describe("VM backup and restore tests", Ordered, func() {
 			runVmBackupAndRestore(brCase, expectedError, updateLastBRcase, updateLastInstallTime, v)
 		},
 
-		Entry("default virtual machine backup and restore", Label("virt"), VmBackupRestoreCase{
+		Entry("no-application CSI datamover backup and restore, CirrOS VM", Label("virt"), VmBackupRestoreCase{
 			Source:          "cirros-dv",
 			SourceNamespace: "openshift-cnv",
 			BackupRestoreCase: BackupRestoreCase{
@@ -157,9 +196,21 @@ var _ = Describe("VM backup and restore tests", Ordered, func() {
 				Name:              "cirros-test",
 				SkipVerifyLogs:    true,
 				BackupRestoreType: lib.CSIDataMover,
-				ReadyDelay:        1 * time.Minute,
-				SnapshotVolumes:   true,
-				RestorePVs:        true,
+				BackupTimeout:     20 * time.Minute,
+			},
+		}, nil),
+
+		Entry("todolist CSI backup and restore, in a Fedora VM", Label("virt"), VmBackupRestoreCase{
+			Template:  "./sample-applications/virtual-machines/fedora-todolist/fedora-todolist.yaml",
+			InitDelay: 3 * time.Minute,
+			BackupRestoreCase: BackupRestoreCase{
+				Namespace:         "mysql-persistent",
+				Name:              "fedora-todolist",
+				SkipVerifyLogs:    true,
+				BackupRestoreType: lib.CSI,
+				PreBackupVerify:   mysqlReady(true, false, lib.CSI),
+				PostRestoreVerify: mysqlReady(false, false, lib.CSI),
+				BackupTimeout:     45 * time.Minute,
 			},
 		}, nil),
 	)

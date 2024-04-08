@@ -63,10 +63,8 @@ type BackupRestoreCase struct {
 	BackupRestoreType lib.BackupRestoreType
 	PreBackupVerify   VerificationFunction
 	PostRestoreVerify VerificationFunction
-	ReadyDelay        time.Duration
-	SkipVerifyLogs    bool
-	SnapshotVolumes   bool
-	RestorePVs        bool
+	SkipVerifyLogs    bool // TODO remove
+	BackupTimeout     time.Duration
 }
 
 type ApplicationBackupRestoreCase struct {
@@ -198,7 +196,7 @@ func runBackup(brCase BackupRestoreCase, backupName string) bool {
 	Expect(err).ToNot(HaveOccurred())
 
 	// wait for backup to not be running
-	Eventually(IsBackupDone(dpaCR.Client, namespace, backupName), timeoutMultiplier*time.Minute*20, time.Second*10).Should(BeTrue())
+	Eventually(lib.IsBackupDone(dpaCR.Client, namespace, backupName), timeoutMultiplier*brCase.BackupTimeout, time.Second*10).Should(BeTrue())
 	// TODO only log on fail?
 	describeBackup := DescribeBackup(veleroClientForSuiteRun, csiClientForSuiteRun, dpaCR.Client, backup)
 	GinkgoWriter.Println(describeBackup)
@@ -299,7 +297,7 @@ func tearDownBackupAndRestore(brCase BackupRestoreCase, installTime time.Time, r
 
 	err = dpaCR.Delete(runTimeClientForSuiteRun)
 	Expect(err).ToNot(HaveOccurred())
-	Eventually(lib.IsNamespaceDeleted(kubernetesClientForSuiteRun, brCase.Namespace), timeoutMultiplier*time.Minute*2, time.Second*5).Should(BeTrue())
+	Eventually(lib.IsNamespaceDeleted(kubernetesClientForSuiteRun, brCase.Namespace), timeoutMultiplier*time.Minute*5, time.Second*5).Should(BeTrue())
 }
 
 var _ = Describe("Backup and restore tests", func() {
@@ -331,6 +329,7 @@ var _ = Describe("Backup and restore tests", func() {
 				BackupRestoreType: lib.CSI,
 				PreBackupVerify:   mysqlReady(true, false, lib.CSI),
 				PostRestoreVerify: mysqlReady(false, false, lib.CSI),
+				BackupTimeout:     20 * time.Minute,
 			},
 		}, nil),
 		Entry("Mongo application CSI", FlakeAttempts(flakeAttempts), ApplicationBackupRestoreCase{
@@ -341,6 +340,7 @@ var _ = Describe("Backup and restore tests", func() {
 				BackupRestoreType: lib.CSI,
 				PreBackupVerify:   mongoready(true, false, lib.CSI),
 				PostRestoreVerify: mongoready(false, false, lib.CSI),
+				BackupTimeout:     20 * time.Minute,
 			},
 		}, nil),
 		Entry("MySQL application two Vol CSI", FlakeAttempts(flakeAttempts), ApplicationBackupRestoreCase{
@@ -352,6 +352,7 @@ var _ = Describe("Backup and restore tests", func() {
 				PreBackupVerify:   mysqlReady(true, true, lib.CSI),
 				PostRestoreVerify: mysqlReady(false, true, lib.CSI),
 				ReadyDelay:        30 * time.Second,
+				BackupTimeout:     20 * time.Minute,
 			},
 		}, nil),
 		Entry("Mongo application RESTIC", FlakeAttempts(flakeAttempts), ApplicationBackupRestoreCase{
@@ -362,6 +363,7 @@ var _ = Describe("Backup and restore tests", func() {
 				BackupRestoreType: lib.RESTIC,
 				PreBackupVerify:   mongoready(true, false, lib.RESTIC),
 				PostRestoreVerify: mongoready(false, false, lib.RESTIC),
+				BackupTimeout:     20 * time.Minute,
 			},
 		}, nil),
 		Entry("MySQL application RESTIC", FlakeAttempts(flakeAttempts), ApplicationBackupRestoreCase{
@@ -372,6 +374,7 @@ var _ = Describe("Backup and restore tests", func() {
 				BackupRestoreType: lib.RESTIC,
 				PreBackupVerify:   mysqlReady(true, false, lib.RESTIC),
 				PostRestoreVerify: mysqlReady(false, false, lib.RESTIC),
+				BackupTimeout:     20 * time.Minute,
 			},
 		}, nil),
 		Entry("Mongo application KOPIA", FlakeAttempts(flakeAttempts), ApplicationBackupRestoreCase{
@@ -382,6 +385,7 @@ var _ = Describe("Backup and restore tests", func() {
 				BackupRestoreType: lib.KOPIA,
 				PreBackupVerify:   mongoready(true, false, lib.KOPIA),
 				PostRestoreVerify: mongoready(false, false, lib.KOPIA),
+				BackupTimeout:     20 * time.Minute,
 			},
 		}, nil),
 		Entry("MySQL application KOPIA", FlakeAttempts(flakeAttempts), ApplicationBackupRestoreCase{
@@ -392,6 +396,7 @@ var _ = Describe("Backup and restore tests", func() {
 				BackupRestoreType: lib.KOPIA,
 				PreBackupVerify:   mysqlReady(true, false, lib.KOPIA),
 				PostRestoreVerify: mysqlReady(false, false, lib.KOPIA),
+				BackupTimeout:     20 * time.Minute,
 			},
 		}, nil),
 		Entry("Mongo application DATAMOVER", FlakeAttempts(flakeAttempts), ApplicationBackupRestoreCase{
@@ -402,6 +407,7 @@ var _ = Describe("Backup and restore tests", func() {
 				BackupRestoreType: lib.CSIDataMover,
 				PreBackupVerify:   mongoready(true, false, lib.CSIDataMover),
 				PostRestoreVerify: mongoready(false, false, lib.CSIDataMover),
+				BackupTimeout:     20 * time.Minute,
 			},
 		}, nil),
 		Entry("MySQL application DATAMOVER", FlakeAttempts(flakeAttempts), ApplicationBackupRestoreCase{
@@ -412,6 +418,7 @@ var _ = Describe("Backup and restore tests", func() {
 				BackupRestoreType: lib.CSIDataMover,
 				PreBackupVerify:   mysqlReady(true, false, lib.CSIDataMover),
 				PostRestoreVerify: mysqlReady(false, false, lib.CSIDataMover),
+				BackupTimeout:     20 * time.Minute,
 			},
 		}, nil),
 		Entry("Mongo application BlockDevice DATAMOVER", FlakeAttempts(flakeAttempts), ApplicationBackupRestoreCase{
@@ -423,6 +430,7 @@ var _ = Describe("Backup and restore tests", func() {
 				BackupRestoreType: lib.CSIDataMover,
 				PreBackupVerify:   mongoready(true, false, lib.CSIDataMover),
 				PostRestoreVerify: mongoready(false, false, lib.CSIDataMover),
+				BackupTimeout:     20 * time.Minute,
 			},
 		}, nil),
 	)
