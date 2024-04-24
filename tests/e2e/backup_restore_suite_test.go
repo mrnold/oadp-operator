@@ -187,12 +187,9 @@ func runBackup(brCase BackupRestoreCase, backupName string) bool {
 	nsRequiresResticDCWorkaround, err := lib.NamespaceRequiresResticDCWorkaround(dpaCR.Client, brCase.Namespace)
 	Expect(err).ToNot(HaveOccurred())
 
-	// TODO this should be a function, not an arbitrary sleep
-	log.Printf("Sleeping for %v to allow application to be ready for case %s", brCase.ReadyDelay, brCase.Name)
-	time.Sleep(brCase.ReadyDelay)
 	// create backup
 	log.Printf("Creating backup %s for case %s", backupName, brCase.Name)
-	backup, err := lib.CreateBackupForNamespaces(dpaCR.Client, namespace, backupName, []string{brCase.Namespace}, brCase.BackupRestoreType == lib.RESTIC || brCase.BackupRestoreType == lib.KOPIA, brCase.BackupRestoreType == lib.CSIDataMover, brCase.SnapshotVolumes)
+	backup, err := lib.CreateBackupForNamespaces(dpaCR.Client, namespace, backupName, []string{brCase.Namespace}, brCase.BackupRestoreType == lib.RESTIC || brCase.BackupRestoreType == lib.KOPIA, brCase.BackupRestoreType == lib.CSIDataMover)
 	Expect(err).ToNot(HaveOccurred())
 
 	// wait for backup to not be running
@@ -225,7 +222,7 @@ func runBackup(brCase BackupRestoreCase, backupName string) bool {
 
 func runRestore(brCase BackupRestoreCase, backupName, restoreName string, nsRequiresResticDCWorkaround bool) {
 	log.Printf("Creating restore %s for case %s", restoreName, brCase.Name)
-	restore, err := lib.CreateRestoreFromBackup(dpaCR.Client, namespace, backupName, restoreName, brCase.RestorePVs)
+	restore, err := lib.CreateRestoreFromBackup(dpaCR.Client, namespace, backupName, restoreName)
 	Expect(err).ToNot(HaveOccurred())
 	Eventually(lib.IsRestoreDone(dpaCR.Client, namespace, restoreName), timeoutMultiplier*time.Minute*60, time.Second*10).Should(BeTrue())
 	// TODO only log on fail?
@@ -351,7 +348,6 @@ var _ = Describe("Backup and restore tests", func() {
 				BackupRestoreType: lib.CSI,
 				PreBackupVerify:   mysqlReady(true, true, lib.CSI),
 				PostRestoreVerify: mysqlReady(false, true, lib.CSI),
-				ReadyDelay:        30 * time.Second,
 				BackupTimeout:     20 * time.Minute,
 			},
 		}, nil),
